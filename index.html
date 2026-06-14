@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AirGlyph — Draw with Your Hand</title>
+
+    <!-- MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap"
+        rel="stylesheet" />
+
+    <style>
+        :root {
+            --bg: #000;
+            --panel-bg: #0a0a0a;
+            --panel-border: #1a1a1a;
+            --accent: #00f5ff;
+            --accent2: #ff2d78;
+            --text: #e8e8e8;
+            --text-muted: #555;
+            --cursor-color: #00f5ff;
+            --panel-w: 220px;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Space Mono', monospace;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* ── LEFT PANEL ── */
+        #panel {
+            width: var(--panel-w);
+            min-width: var(--panel-w);
+            background: var(--panel-bg);
+            border-right: 1px solid var(--panel-border);
+            display: flex;
+            flex-direction: column;
+            padding: 16px 14px;
+            gap: 18px;
+            overflow-y: auto;
+            z-index: 10;
+        }
+
+        #panel::-webkit-scrollbar {
+            width: 3px;
+        }
+
+        #panel::-webkit-scrollbar-thumb {
+            background: #222;
+        }
+
+        .logo {
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            font-size: 22px;
+            letter-spacing: -0.5px;
+            color: var(--accent);
+            text-shadow: 0 0 20px rgba(0, 245, 255, 0.5);
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+
+        .logo span {
+            color: var(--accent2);
+        }
+
+        .section-label {
+            font-size: 9px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        /* Mode badge */
+        .mode-badge {
+            font-size: 11px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .mode-draw {
+            background: rgba(0, 245, 255, 0.12);
+            color: #00f5ff;
+            border: 1px solid rgba(0, 245, 255, 0.3);
+        }
+
+        .mode-erase {
+            background: rgba(255, 255, 255, 0.08);
+            color: #ccc;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .mode-move {
+            background: rgba(255, 200, 0, 0.1);
+            color: #ffc800;
+            border: 1px solid rgba(255, 200, 0, 0.3);
+        }
+
+        .mode-idle {
+            background: rgba(255, 255, 255, 0.04);
+            color: #444;
+            border: 1px solid #1a1a1a;
+        }
+
+        /* Color section */
+        .color-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #colorPreview {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: 2px solid #222;
+            flex-shrink: 0;
+            box-shadow: 0 0 10px var(--cursor-color);
+            transition: box-shadow 0.3s;
+        }
+
+        #colorPicker {
+            width: 0;
+            height: 0;
+            opacity: 0;
+            position: absolute;
+        }
+
+        .color-pick-btn {
+            flex: 1;
+            background: #111;
+            border: 1px solid #222;
+            color: var(--text-muted);
+            font-family: 'Space Mono', monospace;
+            font-size: 10px;
+            padding: 7px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+
+        .color-pick-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .presets {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 5px;
+        }
+
+        .preset-color {
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: 5px;
+            border: 1.5px solid transparent;
+            cursor: pointer;
+            transition: transform 0.15s, border-color 0.15s;
+        }
+
+        .preset-color:hover {
+            transform: scale(1.2);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        #colorHistory {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            min-height: 20px;
+        }
+
+        .history-dot {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 1px solid #222;
+            transition: transform 0.15s;
+        }
+
+        .history-dot:hover {
+            transform: scale(1.25);
+        }
+
+        /* Sliders */
+        .slider-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .slider-val {
+            font-size: 10px;
+            color: var(--accent);
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            background: #1a1a1a;
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 8px var(--accent);
+            transition: transform 0.15s;
+        }
+
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.3);
+        }
+
+        /* Buttons */
+        .btn-row {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 9px;
+            border-radius: 7px;
+            border: 1px solid #1e1e1e;
+            font-family: 'Space Mono', monospace;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #0e0e0e;
+            color: var(--text);
+        }
+
+        .btn:hover {
+            background: #161616;
+            border-color: #333;
+            color: #fff;
+        }
+
+        .btn.btn-danger {
+            color: var(--accent2);
+        }
+
+        .btn.btn-danger:hover {
+            background: rgba(255, 45, 120, 0.08);
+            border-color: var(--accent2);
+        }
+
+        .btn.btn-accent {
+            color: var(--accent);
+        }
+
+        .btn.btn-accent:hover {
+            background: rgba(0, 245, 255, 0.06);
+            border-color: var(--accent);
+        }
+
+        /* Gesture guide */
+        .gesture-guide {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .gesture-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 10px;
+            color: var(--text-muted);
+            padding: 5px 8px;
+            border-radius: 5px;
+            background: #080808;
+            border: 1px solid #111;
+        }
+
+        .gesture-icon {
+            font-size: 15px;
+            flex-shrink: 0;
+        }
+
+        /* ── CANVAS AREA ── */
+        #canvasWrap {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #drawCanvas,
+        #objCanvas,
+        #feedbackCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #objCanvas {
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        #feedbackCanvas {
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* Webcam preview */
+        #camWrap {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 240px;
+            height: 180px;
+            border-radius: 10px;
+            border: 1px solid #222;
+            overflow: hidden;
+            z-index: 5;
+            background: #050505;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+            transition: opacity 0.3s, width 0.3s, height 0.3s;
+        }
+
+        #camWrap:hover {
+            opacity: 1 !important;
+        }
+
+        #videoEl {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            display: block;
+        }
+
+        /* Corner label */
+        #camLabel {
+            position: absolute;
+            bottom: 6px;
+            left: 8px;
+            font-size: 9px;
+            letter-spacing: 1.5px;
+            color: rgba(255, 255, 255, 0.3);
+            pointer-events: none;
+        }
+
+        /* Hand guide box — center of cam */
+        #camGuide {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120px;
+            height: 130px;
+            border: 1px dashed rgba(0, 245, 255, 0.25);
+            border-radius: 8px;
+            pointer-events: none;
+        }
+
+        /* Toggle button */
+        #camToggle {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #333;
+            color: #666;
+            font-size: 10px;
+            padding: 3px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'Space Mono', monospace;
+            z-index: 6;
+            transition: color 0.2s;
+        }
+
+        #camToggle:hover {
+            color: var(--accent);
+        }
+
+        /* Status bar */
+        #statusBar {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 5;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #333;
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+
+        .status-dot.active {
+            background: #00ff88;
+            box-shadow: 0 0 8px #00ff88;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        .status-text {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-family: 'Space Mono', monospace;
+            letter-spacing: 0.5px;
+        }
+
+        /* Loading overlay */
+        #loadingOverlay {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            z-index: 100;
+            transition: opacity 0.6s;
+        }
+
+        #loadingOverlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-logo {
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            font-size: 42px;
+            color: var(--accent);
+            text-shadow: 0 0 40px rgba(0, 245, 255, 0.6);
+            letter-spacing: -1px;
+        }
+
+        .loading-logo span {
+            color: var(--accent2);
+        }
+
+        .loading-sub {
+            font-size: 11px;
+            color: #444;
+            letter-spacing: 3px;
+        }
+
+        .loader-bar {
+            width: 180px;
+            height: 2px;
+            background: #111;
+            border-radius: 1px;
+            overflow: hidden;
+        }
+
+        .loader-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            width: 0%;
+            transition: width 0.4s ease;
+            border-radius: 1px;
+        }
+
+        .loading-step {
+            font-size: 10px;
+            color: #333;
+            letter-spacing: 1px;
+        }
+
+        /* Divider */
+        .divider {
+            height: 1px;
+            background: var(--panel-border);
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <!-- Loading Screen -->
+    <div id="loadingOverlay">
+        <div class="loading-logo">Air<span>Glyph</span></div>
+        <div class="loading-sub">GESTURE DRAWING</div>
+        <div class="loader-bar">
+            <div class="loader-fill" id="loaderFill"></div>
+        </div>
+        <div class="loading-step" id="loadingStep">Initializing...</div>
+    </div>
+
+    <!-- Left Panel -->
+    <div id="panel">
+        <div class="logo">Air<span>Glyph</span></div>
+
+        <!-- Mode Badge -->
+        <div>
+            <div class="section-label">Current Mode</div>
+            <div class="mode-badge mode-idle" id="modeBadge">✊ Idle</div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Color -->
+        <div>
+            <div class="section-label">Color</div>
+            <div class="color-row">
+                <div id="colorPreview" onclick="document.getElementById('colorPicker').click()" style="cursor:pointer"
+                    title="Pick custom color"></div>
+                <input type="color" id="colorPicker" value="#00f5ff" />
+                <button class="color-pick-btn" onclick="document.getElementById('colorPicker').click()">PICK
+                    COLOR</button>
+            </div>
+
+            <div class="presets" style="margin-top:10px">
+                <div class="preset-color" data-color="#00f5ff" style="background:#00f5ff" title="Cyan"></div>
+                <div class="preset-color" data-color="#ff2d78" style="background:#ff2d78" title="Pink"></div>
+                <div class="preset-color" data-color="#ffe100" style="background:#ffe100" title="Yellow"></div>
+                <div class="preset-color" data-color="#00ff88" style="background:#00ff88" title="Green"></div>
+                <div class="preset-color" data-color="#ff6b00" style="background:#ff6b00" title="Orange"></div>
+                <div class="preset-color" data-color="#a855f7" style="background:#a855f7" title="Purple"></div>
+                <div class="preset-color" data-color="#ffffff" style="background:#ffffff" title="White"></div>
+                <div class="preset-color" data-color="#60a5fa" style="background:#60a5fa" title="Blue"></div>
+                <div class="preset-color" data-color="#f87171" style="background:#f87171" title="Red"></div>
+                <div class="preset-color" data-color="#34d399" style="background:#34d399" title="Emerald"></div>
+                <div class="preset-color" data-color="#fbbf24" style="background:#fbbf24" title="Amber"></div>
+                <div class="preset-color" data-color="#e879f9" style="background:#e879f9" title="Fuchsia"></div>
+            </div>
+
+            <div style="margin-top:8px">
+                <div class="section-label">Recent</div>
+                <div id="colorHistory"></div>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Marker Size -->
+        <div class="slider-wrap">
+            <div class="slider-header">
+                <div class="section-label" style="margin:0">Marker Size</div>
+                <div class="slider-val" id="markerSizeVal">4px</div>
+            </div>
+            <input type="range" id="markerSize" min="1" max="30" value="4" />
+        </div>
+
+        <!-- Eraser Size -->
+        <div class="slider-wrap">
+            <div class="slider-header">
+                <div class="section-label" style="margin:0">Eraser Size</div>
+                <div class="slider-val" id="eraserSizeVal">40px</div>
+            </div>
+            <input type="range" id="eraserSize" min="10" max="120" value="40" />
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Actions -->
+        <div class="btn-row">
+            <div class="section-label">Actions</div>
+            <button class="btn btn-accent" id="btnUndo">↩ UNDO</button>
+            <button class="btn btn-danger" id="btnClear">⬛ CLEAR ALL</button>
+            <button class="btn" id="btnSave">💾 SAVE PNG</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Gesture Guide -->
+        <div class="gesture-guide">
+            <div class="section-label">Gesture Guide</div>
+            <div class="gesture-item"><span class="gesture-icon">☝️</span>Index finger → Draw</div>
+            <div class="gesture-item"><span class="gesture-icon">🖐</span>Open palm → Erase</div>
+            <div class="gesture-item"><span class="gesture-icon">🤌</span>Pinch → Move shape</div>
+            <div class="gesture-item"><span class="gesture-icon">✊</span>Fist → Pause / Lift pen</div>
+        </div>
+    </div>
+
+    <!-- Canvas Area -->
+    <div id="canvasWrap">
+        <canvas id="drawCanvas"></canvas>
+        <canvas id="objCanvas"></canvas>
+        <canvas id="feedbackCanvas"></canvas>
+        <div id="camWrap">
+            <video id="videoEl" autoplay muted playsinline></video>
+            <div id="camGuide"></div>
+            <div id="camLabel">HAND CAM</div>
+        </div>
+        <button id="camToggle" title="Toggle camera size">⤢</button>
+        <div id="statusBar">
+            <div class="status-dot" id="statusDot"></div>
+            <div class="status-text" id="statusText">Starting camera...</div>
+        </div>
+    </div>
+
+    <script>
+        // gesture.js — MediaPipe hand tracking + robust gesture detection
+
+        const GESTURE = { DRAW: 'draw', ERASE: 'erase', MOVE: 'move', IDLE: 'idle' };
+
+        class GestureEngine {
+            constructor(onGesture) {
+                this.onGesture = onGesture;
+                this.hands = null;
+                this.camera = null;
+                this.lastGesture = GESTURE.IDLE;
+                this.gestureBuffer = [];
+                this.BUFFER_SIZE = 6;
+                this.smoothHistory = [];
+                this.SMOOTH_SIZE = 9;
+                this.DEAD_ZONE = 0.004;
+                this.running = false;
+            }
+
+            async init(videoEl) {
+                this.videoEl = videoEl;
+
+                this.hands = new Hands({
+                    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+                });
+
+                this.hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.80,
+                    minTrackingConfidence: 0.75
+                });
+
+                this.hands.onResults(r => this._processResults(r));
+
+                this.camera = new Camera(videoEl, {
+                    onFrame: async () => {
+                        if (this.running) await this.hands.send({ image: videoEl });
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                await this.camera.start();
+                this.running = true;
+            }
+
+            // ── Core helpers ──────────────────────────────────────────
+
+            // Is finger tip higher than its PIP joint (Y axis)?
+            _isFingerUp(lm, tip, pip) {
+                return lm[tip].y < lm[pip].y;
+            }
+
+            // Euclidean distance between two landmarks (normalized)
+            _dist(a, b) {
+                return Math.hypot(a.x - b.x, a.y - b.y);
+            }
+
+            // Angle at point B formed by A→B→C (degrees)
+            _angle(A, B, C) {
+                const ab = { x: A.x - B.x, y: A.y - B.y };
+                const cb = { x: C.x - B.x, y: C.y - B.y };
+                const dot = ab.x * cb.x + ab.y * cb.y;
+                const mag = Math.hypot(ab.x, ab.y) * Math.hypot(cb.x, cb.y);
+                if (mag === 0) return 0;
+                return Math.acos(Math.min(1, Math.max(-1, dot / mag))) * (180 / Math.PI);
+            }
+
+            // ── Index finger pointing CHECK (the main fix) ────────────
+            /*
+              We check 4 things:
+              1. Index tip is clearly ABOVE its base (finger is up)
+              2. Other 3 fingers are DOWN (not open palm / erase)
+              3. Finger is STRAIGHT — angle at joints 6 and 7 should be > 150°
+                 (a bent/sideways finger has a smaller angle)
+              4. Finger is pointing TOWARD camera — tip Z is less than MCP Z
+                 AND the finger vector (MCP→tip) has a forward Z component
+            */
+            _isIndexPointing(lm) {
+                // 1. Index tip above base
+                const tipAboveBase = lm[8].y < lm[5].y - 0.04;
+                if (!tipAboveBase) return false;
+
+                // 2. Other fingers curled — middle, ring, pinky tips below their PIP
+                const middleCurled = lm[12].y > lm[10].y;
+                const ringCurled = lm[16].y > lm[14].y;
+                const pinkyCurled = lm[20].y > lm[18].y;
+                if (!middleCurled || !ringCurled || !pinkyCurled) return false;
+
+                // 3. Finger straightness — check angle at landmark 6 (DIP) and 7 (PIP)
+                //    Landmarks: 5=MCP, 6=PIP, 7=DIP, 8=TIP
+                const angleAt6 = this._angle(lm[5], lm[6], lm[7]);
+                const angleAt7 = this._angle(lm[6], lm[7], lm[8]);
+                const isStraight = angleAt6 > 140 && angleAt7 > 140;
+                if (!isStraight) return false;
+
+                // 4. Finger pointing toward camera (Z depth check)
+                //    Tip should be closer to camera (lower Z) than MCP base
+                //    Also check the wrist→index_base vector to confirm hand faces forward
+                const tipCloser = lm[8].z < lm[5].z - 0.01;
+                const wristForward = lm[5].z < lm[0].z + 0.05; // index base not behind wrist
+
+                return tipCloser && wristForward;
+            }
+
+            // ── Pinch distance in pixels ──────────────────────────────
+            // Distance between thumb tip (4) and index tip (8) in pixels
+            _pinchDist(lm, canvasW) {
+                return Math.hypot(
+                    (lm[4].x - lm[8].x) * canvasW,
+                    (lm[4].y - lm[8].y) * canvasW
+                );
+            }
+
+            // Pinch gesture: thumb + index touching, others curled
+            _isPinching(lm, canvasW) {
+                const dist = this._pinchDist(lm, canvasW);
+                if (dist > 50) return false;
+                const middleCurled = lm[12].y > lm[10].y;
+                const ringCurled = lm[16].y > lm[14].y;
+                const pinkyCurled = lm[20].y > lm[18].y;
+                const curledCount = [middleCurled, ringCurled, pinkyCurled].filter(Boolean).length;
+                return curledCount >= 2;
+            }
+
+            // Open palm check for eraser
+            _isOpenPalm(lm) {
+                const allUp =
+                    this._isFingerUp(lm, 8, 6) &&
+                    this._isFingerUp(lm, 12, 10) &&
+                    this._isFingerUp(lm, 16, 14) &&
+                    this._isFingerUp(lm, 20, 18);
+                if (!allUp) return false;
+                const palmFacing = lm[9].z < lm[0].z + 0.1;
+                return palmFacing;
+            }
+
+            // Main gesture classifier
+            _detectGesture(lm, canvasW) {
+                // Pinch = move (checked first)
+                if (this._isPinching(lm, canvasW)) return GESTURE.MOVE;
+                // Open palm = erase
+                if (this._isOpenPalm(lm)) return GESTURE.ERASE;
+                // Index pointing straight toward camera = draw
+                if (this._isIndexPointing(lm)) return GESTURE.DRAW;
+                return GESTURE.IDLE;
+            }
+
+            // ── Weighted smoothing with dead zone ─────────────────────
+            _smooth(x, y) {
+                const last = this.smoothHistory[this.smoothHistory.length - 1];
+                if (last && Math.hypot(x - last.x, y - last.y) < this.DEAD_ZONE) {
+                    return { x: last.x, y: last.y };
+                }
+                this.smoothHistory.push({ x, y });
+                if (this.smoothHistory.length > this.SMOOTH_SIZE) this.smoothHistory.shift();
+                let wx = 0, wy = 0, wt = 0;
+                this.smoothHistory.forEach((p, i) => {
+                    const w = i + 1;
+                    wx += p.x * w; wy += p.y * w; wt += w;
+                });
+                return { x: wx / wt, y: wy / wt };
+            }
+
+            // ── Frame processor ───────────────────────────────────────
+            _processResults(results) {
+                if (!results.multiHandLandmarks?.length) {
+                    this._commit(GESTURE.IDLE, null, null);
+                    return;
+                }
+
+                const lm = results.multiHandLandmarks[0];
+                const canvasW = window.airCanvas?.width || 640;
+                const gesture = this._detectGesture(lm, canvasW);
+
+                const { x, y } = this._smooth(lm[8].x, lm[8].y);
+                const palmPt = { x: lm[9].x, y: lm[9].y };
+                // Midpoint between thumb tip (4) and index tip (8) — used as pinch grab point
+                const thumbPt = { x: (lm[4].x + lm[8].x) / 2, y: (lm[4].y + lm[8].y) / 2 };
+
+                // Stability buffer — prevent flickering between modes
+                this.gestureBuffer.push(gesture);
+                if (this.gestureBuffer.length > this.BUFFER_SIZE) this.gestureBuffer.shift();
+
+                const allSame = this.gestureBuffer.every(g => g === gesture);
+
+                // Draw mode commits immediately (no lag), others wait for buffer
+                if (gesture === GESTURE.DRAW || allSame) {
+                    this._commit(gesture, { x, y }, palmPt, thumbPt);
+                } else {
+                    this._commit(this.lastGesture, { x, y }, palmPt, thumbPt);
+                }
+            }
+
+            _commit(gesture, indexPt, palmPt, thumbPt) {
+                // Cooldown: after idle/erase, ignore stray draw frames for 4 frames
+                if (gesture === GESTURE.DRAW && this.lastGesture === GESTURE.IDLE) {
+                    this.drawCooldown = (this.drawCooldown || 0) + 1;
+                    if (this.drawCooldown < 4) {
+                        this.onGesture({ gesture: GESTURE.IDLE, indexPt, palmPt, thumbPt });
+                        return;
+                    }
+                } else {
+                    this.drawCooldown = 0;
+                }
+                this.lastGesture = gesture;
+                this.onGesture({ gesture, indexPt, palmPt, thumbPt });
+            }
+
+            stop() {
+                this.running = false;
+                this.camera?.stop();
+            }
+        }
+
+    </script>
+    <script>
+        // canvas.js — Drawing engine, shape snapping, move, undo
+
+        class AirCanvas {
+            constructor(drawCanvas, objCanvas, feedbackCanvas) {
+                this.dc = drawCanvas;
+                this.oc = objCanvas;
+                this.fc = feedbackCanvas;
+                this.ctx = drawCanvas.getContext('2d');
+                this.octx = objCanvas.getContext('2d');
+                this.fctx = feedbackCanvas.getContext('2d');
+
+                this.width = drawCanvas.width;
+                this.height = drawCanvas.height;
+                window.airCanvas = drawCanvas;
+
+                this.color = '#00f5ff';
+                this.markerSize = 4;
+                this.eraserSize = 40;
+
+                this.mode = 'idle';
+                this.drawing = false;
+                this.lastPt = null;
+                this.ctrlPt = null;
+                this.undoStack = [];
+                this.MAX_UNDO = 20;
+
+                // Movable objects — stored in PIXEL coords
+                this.objects = [];
+                this.activeObj = null;
+                this.pinchOffset = { x: 0, y: 0 };
+                this.wasMoving = false;  // track pinch state across frames
+
+                this.currentStroke = [];
+                this.SNAP_MIN_PTS = 25;
+
+                this._fillBg();
+            }
+
+            _fillBg() {
+                this.ctx.fillStyle = '#000';
+                this.ctx.fillRect(0, 0, this.width, this.height);
+            }
+
+            resize(w, h) {
+                const img = this.ctx.getImageData(0, 0, this.width, this.height);
+                this.width = this.dc.width = this.oc.width = this.fc.width = w;
+                this.height = this.dc.height = this.oc.height = this.fc.height = h;
+                window.airCanvas = this.dc;
+                this._fillBg();
+                this.ctx.putImageData(img, 0, 0);
+                this._redrawObjects();
+            }
+
+            _saveUndo() {
+                this.undoStack.push(this.ctx.getImageData(0, 0, this.width, this.height));
+                if (this.undoStack.length > 20) this.undoStack.shift();
+            }
+
+            undo() {
+                if (!this.undoStack.length) return;
+                this.ctx.putImageData(this.undoStack.pop(), 0, 0);
+            }
+
+            clearAll() {
+                this._saveUndo();
+                this.objects = [];
+                this.octx.clearRect(0, 0, this.width, this.height);
+                this._fillBg();
+            }
+
+            // Normalized → pixel (mirrored X)
+            _px(pt) {
+                return { x: (1 - pt.x) * this.width, y: pt.y * this.height };
+            }
+
+            update(gesture, indexPt, palmPt, thumbPt) {
+                this.mode = gesture;
+                this.fctx.clearRect(0, 0, this.width, this.height);
+
+                if (!indexPt) {
+                    this._liftPen();
+                    this.activeObj = null;
+                    this.wasMoving = false;
+                    return;
+                }
+
+                const px = this._px(indexPt);
+                const palmPx = palmPt ? this._px(palmPt) : px;
+                // Pinch midpoint for grabbing
+                const movePx = thumbPt ? this._px(thumbPt) : px;
+
+                switch (gesture) {
+                    case 'draw':
+                        // If we were just moving, release object first
+                        if (this.wasMoving) { this.activeObj = null; this.wasMoving = false; }
+                        this._handleDraw(px);
+                        break;
+                    case 'erase':
+                        this._liftPen();
+                        this.activeObj = null;
+                        this.wasMoving = false;
+                        this._handleErase(palmPx);
+                        break;
+                    case 'move':
+                        this._liftPen();
+                        this._handleMove(movePx);
+                        this.wasMoving = true;
+                        break;
+                    case 'idle':
+                        this._liftPen();
+                        // Only clear activeObj when pinch is fully released
+                        if (this.wasMoving) { this.activeObj = null; this.wasMoving = false; }
+                        break;
+                }
+
+                this._drawCursor(px, gesture);
+            }
+
+            _liftPen() {
+                if (this.drawing && this.currentStroke.length >= this.SNAP_MIN_PTS) {
+                    this._trySnapShape();
+                }
+                this.drawing = false;
+                this.lastPt = null;
+                this.ctrlPt = null;
+                this.currentStroke = [];
+            }
+
+            _handleDraw(px) {
+                if (!this.drawing) {
+                    this._saveUndo();
+                    this.drawing = true;
+                    this.lastPt = px;
+                    this.ctrlPt = px;
+                    this.currentStroke = [px];
+                    return;
+                }
+                this.currentStroke.push(px);
+
+                const mid = { x: (this.lastPt.x + px.x) / 2, y: (this.lastPt.y + px.y) / 2 };
+                this.ctx.beginPath();
+                this.ctx.moveTo(this.ctrlPt.x, this.ctrlPt.y);
+                this.ctx.quadraticCurveTo(this.lastPt.x, this.lastPt.y, mid.x, mid.y);
+                this.ctx.strokeStyle = this.color;
+                this.ctx.lineWidth = this.markerSize;
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+                this.ctx.stroke();
+
+                this.ctrlPt = mid;
+                this.lastPt = px;
+            }
+
+            _handleErase(px) {
+                const r = this.eraserSize / 2;
+
+                // Erase from draw layer
+                this.ctx.beginPath();
+                this.ctx.arc(px.x, px.y, r, 0, Math.PI * 2);
+                this.ctx.fillStyle = '#000';
+                this.ctx.fill();
+
+                // Erase objects whose center is within eraser radius
+                const before = this.objects.length;
+                this.objects = this.objects.filter(obj => {
+                    if (obj.type === 'circle') {
+                        const d = Math.hypot(px.x - obj.cx, px.y - obj.cy);
+                        return d > r + obj.r * 0.5; // remove if eraser overlaps center area
+                    }
+                    return true;
+                });
+                if (this.objects.length !== before) this._redrawObjects();
+
+                // Show eraser circle on feedback layer
+                this.fctx.beginPath();
+                this.fctx.arc(px.x, px.y, r, 0, Math.PI * 2);
+                this.fctx.strokeStyle = 'rgba(255,255,255,0.45)';
+                this.fctx.lineWidth = 1.5;
+                this.fctx.stroke();
+            }
+
+            _handleMove(px) {
+                // Grab object once when pinch starts
+                if (!this.activeObj) {
+                    this.activeObj = this._findNearest(px);
+                    if (this.activeObj) {
+                        this.pinchOffset = {
+                            x: px.x - this.activeObj.cx,
+                            y: px.y - this.activeObj.cy
+                        };
+                        console.log('Grabbed object:', this.activeObj);
+                    } else {
+                        console.log('No object found near', px, '— objects:', this.objects.length);
+                    }
+                }
+
+                if (this.activeObj) {
+                    this.activeObj.cx = px.x - this.pinchOffset.x;
+                    this.activeObj.cy = px.y - this.pinchOffset.y;
+                    this._redrawObjects();
+
+                    // Yellow highlight on feedback layer
+                    this.fctx.beginPath();
+                    this.fctx.arc(this.activeObj.cx, this.activeObj.cy, this.activeObj.r + 10, 0, Math.PI * 2);
+                    this.fctx.strokeStyle = 'rgba(255,220,0,0.7)';
+                    this.fctx.lineWidth = 3;
+                    this.fctx.stroke();
+                }
+            }
+
+            _drawCursor(px, gesture) {
+                const c = { draw: this.color, erase: '#ffffff', move: '#ffc800', idle: '#444' }[gesture] || '#fff';
+                this.fctx.beginPath();
+                this.fctx.arc(px.x, px.y, 6, 0, Math.PI * 2);
+                this.fctx.fillStyle = c;
+                this.fctx.fill();
+                this.fctx.beginPath();
+                this.fctx.arc(px.x, px.y, 11, 0, Math.PI * 2);
+                this.fctx.strokeStyle = c;
+                this.fctx.lineWidth = 1.5;
+                this.fctx.globalAlpha = 0.35;
+                this.fctx.stroke();
+                this.fctx.globalAlpha = 1;
+            }
+
+            _trySnapShape() {
+                const pts = this.currentStroke;
+                if (pts.length < this.SNAP_MIN_PTS) return;
+
+                const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+                const minX = Math.min(...xs), maxX = Math.max(...xs);
+                const minY = Math.min(...ys), maxY = Math.max(...ys);
+                const cx = (minX + maxX) / 2;
+                const cy = (minY + maxY) / 2;
+                const w = maxX - minX;
+                const h = maxY - minY;
+
+                if (w < 20 || h < 20) return; // too small to snap
+
+                const avgR = pts.reduce((s, p) => s + Math.hypot(p.x - cx, p.y - cy), 0) / pts.length;
+                const variance = pts.reduce((s, p) => {
+                    const d = Math.hypot(p.x - cx, p.y - cy) - avgR;
+                    return s + d * d;
+                }, 0) / pts.length;
+
+                // More lenient thresholds
+                const isRound = variance < avgR * avgR * 0.25;
+                const isSquare = Math.abs(w - h) < w * 0.5;
+                const closeDist = Math.hypot(
+                    pts[0].x - pts[pts.length - 1].x,
+                    pts[0].y - pts[pts.length - 1].y
+                );
+                const isClosed = closeDist < Math.max(w, h) * 0.5;
+
+                console.log('Snap check — isRound:', isRound, 'isClosed:', isClosed, 'variance:', variance.toFixed(2), 'avgR:', avgR.toFixed(2));
+
+                if (isRound && isSquare && isClosed) {
+                    // Remove drawn stroke, replace with clean circle on obj layer
+                    if (this.undoStack.length) {
+                        this.ctx.putImageData(this.undoStack[this.undoStack.length - 1], 0, 0);
+                    }
+                    const obj = { type: 'circle', cx, cy, r: avgR, color: this.color, size: this.markerSize };
+                    this.objects.push(obj);
+                    this._redrawObjects();
+                    console.log('Snapped circle added. Total objects:', this.objects.length);
+                }
+            }
+
+            _redrawObjects() {
+                this.octx.clearRect(0, 0, this.width, this.height);
+                for (const obj of this.objects) {
+                    this.octx.beginPath();
+                    if (obj.type === 'circle') {
+                        this.octx.arc(obj.cx, obj.cy, obj.r, 0, Math.PI * 2);
+                    }
+                    this.octx.strokeStyle = obj.color;
+                    this.octx.lineWidth = obj.size;
+                    this.octx.lineCap = 'round';
+                    this.octx.stroke();
+                }
+            }
+
+            // Grab radius = 120px — generous so pinch near circle works
+            _findNearest(px) {
+                let best = null, bestD = 120;
+                for (const obj of this.objects) {
+                    // For circles: distance to CENTER, not perimeter
+                    const d = Math.hypot(px.x - obj.cx, px.y - obj.cy);
+                    const grabDist = d < obj.r + 60 ? d : Infinity; // within circle + 60px margin
+                    if (grabDist < bestD) { best = obj; bestD = grabDist; }
+                }
+                return best;
+            }
+
+            saveImage() {
+                const tmp = document.createElement('canvas');
+                tmp.width = this.width;
+                tmp.height = this.height;
+                const tctx = tmp.getContext('2d');
+                tctx.drawImage(this.dc, 0, 0);
+                tctx.drawImage(this.oc, 0, 0);
+                const a = document.createElement('a');
+                a.href = tmp.toDataURL('image/png');
+                a.download = 'airglyph.png';
+                a.click();
+            }
+        }
+
+    </script>
+    <script src="ui.js"></script>
+    <script>
+        (async () => {
+            const overlay = document.getElementById('loadingOverlay');
+            const fill = document.getElementById('loaderFill');
+            const step = document.getElementById('loadingStep');
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+
+            function setProgress(pct, msg) {
+                fill.style.width = pct + '%';
+                step.textContent = msg;
+            }
+
+            // ── Resize all canvases to fill container ──
+            function resizeCanvases() {
+                const wrap = document.getElementById('canvasWrap');
+                const w = wrap.clientWidth, h = wrap.clientHeight;
+                ['drawCanvas', 'objCanvas', 'feedbackCanvas'].forEach(id => {
+                    const c = document.getElementById(id);
+                    c.width = w; c.height = h;
+                });
+                return { w, h };
+            }
+
+            setProgress(10, 'Setting up canvas...');
+            resizeCanvases();
+            window.addEventListener('resize', () => {
+                const { w, h } = resizeCanvases();
+                if (window._airGlyph) window._airGlyph.resize(w, h);
+            });
+
+            setProgress(30, 'Loading hand detection model...');
+
+            const drawCanvas = document.getElementById('drawCanvas');
+            const objCanvas = document.getElementById('objCanvas');
+            const feedbackCanvas = document.getElementById('feedbackCanvas');
+            const videoEl = document.getElementById('videoEl');
+
+            const ac = new AirCanvas(drawCanvas, objCanvas, feedbackCanvas);
+            window._airGlyph = ac;
+            const ui = new UIController(ac);
+
+            setProgress(60, 'Starting webcam...');
+
+            const engine = new GestureEngine(({ gesture, indexPt, palmPt, thumbPt }) => {
+                ac.update(gesture, indexPt, palmPt, thumbPt);
+                ui.updateMode(gesture);
+            });
+
+            try {
+                setProgress(80, 'Requesting camera access...');
+                await engine.init(videoEl);
+                setProgress(100, 'Ready!');
+
+                statusDot.classList.add('active');
+                statusText.textContent = 'Camera active — show your hand';
+
+                setTimeout(() => overlay.classList.add('hidden'), 600);
+
+                // Camera toggle — small / big / hidden
+                const camWrap = document.getElementById('camWrap');
+                const camToggle = document.getElementById('camToggle');
+                const sizes = [
+                    { w: '240px', h: '180px', op: '0.85' },
+                    { w: '320px', h: '240px', op: '1' },
+                    { w: '0px', h: '0px', op: '0' },
+                ];
+                let sizeIdx = 0;
+                camToggle.addEventListener('click', () => {
+                    sizeIdx = (sizeIdx + 1) % sizes.length;
+                    const s = sizes[sizeIdx];
+                    camWrap.style.width = s.w;
+                    camWrap.style.height = s.h;
+                    camWrap.style.opacity = s.op;
+                    camToggle.textContent = sizeIdx === 2 ? '⤡' : '⤢';
+                });
+
+                // Auto-fade when not drawing (so it doesn't distract)
+                let fadeTimer;
+                document.getElementById('canvasWrap').addEventListener('mousemove', () => {
+                    if (sizeIdx === 2) return;
+                    camWrap.style.opacity = sizes[sizeIdx].op;
+                    clearTimeout(fadeTimer);
+                    fadeTimer = setTimeout(() => {
+                        if (sizeIdx !== 2) camWrap.style.opacity = '0.35';
+                    }, 3000);
+                });
+
+            } catch (err) {
+                setProgress(100, 'Camera error: ' + err.message);
+                statusText.textContent = 'Camera error — check permissions';
+                console.error(err);
+            }
+        })();
+    </script>
+</body>
+
+</html>
